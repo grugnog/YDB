@@ -38,6 +38,7 @@
 #include "iosp.h"	/* for SS_NORMAL */
 #include "start_fetches.h"
 #include "ydb_shebang.h"	/* for REPLACE_IF_SHEBANG_WITH_SEMICOLON */
+#include "ast_dump_json.h"
 
 #define HOPELESS_COMPILE 128
 
@@ -136,15 +137,41 @@ boolean_t compiler_startup(void)
 	null_lab = get_mladdr(&null_mident);
 	null_lab->ml = &mline_root;
 	mlmax++;
+	fprintf(stderr, "[DEBUG] About to call ast_dump_json_init\n");
+	fflush(stderr);
+	ast_dump_json_init();	/* Initialize AST JSON dumping if enabled */
+	fprintf(stderr, "[DEBUG] ast_dump_json_init returned successfully\n");
+	fflush(stderr);
 	(TREF(fetch_control)).curr_fetch_trip = (TREF(fetch_control)).curr_fetch_opr = newtriple(OC_LINEFETCH);
 	(TREF(fetch_control)).curr_fetch_count = 0;
 	TREF(code_generated) = FALSE;
 	line_count = 1;
 	total_source_len = 0;
+	if (cmd_qlf.qlf & CQ_DUMP_AST_JSON) {
+		fprintf(stderr, "[DEBUG] Starting compilation loop\n");
+		fflush(stderr);
+	}
 	for (TREF(source_line) = 1;  errknt <= HOPELESS_COMPILE;  (TREF(source_line))++)
 	{
-		if (-1 == (n = read_source_file()))
+		if (cmd_qlf.qlf & CQ_DUMP_AST_JSON) {
+			fprintf(stderr, "[DEBUG] Processing source line %d\n", TREF(source_line));
+			fflush(stderr);
+		}
+		if (cmd_qlf.qlf & CQ_DUMP_AST_JSON) {
+			fprintf(stderr, "[DEBUG] About to call read_source_file() for line %d\n", TREF(source_line));
+			fflush(stderr);
+		}
+		if (-1 == (n = read_source_file())) {
+			if (cmd_qlf.qlf & CQ_DUMP_AST_JSON) {
+				fprintf(stderr, "[DEBUG] read_source_file() returned -1, breaking\n");
+				fflush(stderr);
+			}
 			break;
+		}
+		if (cmd_qlf.qlf & CQ_DUMP_AST_JSON) {
+			fprintf(stderr, "[DEBUG] read_source_file() returned %d bytes for line %d\n", n, TREF(source_line));
+			fflush(stderr);
+		}
 		/* Whether or not, we come here through "ydbsh" or "yottadb", allow for shebang lines in the first line
 		 * and do not issue a compile error. Hence the below macro is invoked even if "shebang_invocation" is FALSE.
 		 */
@@ -173,22 +200,80 @@ boolean_t compiler_startup(void)
 		lb_init();
 		if (cmd_qlf.qlf & CQ_CE_PREPROCESS)
 			put_ceprep_line();
+		if (cmd_qlf.qlf & CQ_DUMP_AST_JSON) {
+			fprintf(stderr, "[DEBUG] About to parse line %d\n", TREF(source_line));
+			fflush(stderr);
+		}
 		if (!line(&line_count))
 		{
+			if (cmd_qlf.qlf & CQ_DUMP_AST_JSON) {
+				fprintf(stderr, "[DEBUG] Line parse failed for line %d\n", TREF(source_line));
+				fflush(stderr);
+			}
 			assert(TREF(source_error_found));
 			errknt++;
+		} else if (cmd_qlf.qlf & CQ_DUMP_AST_JSON) {
+			fprintf(stderr, "[DEBUG] Successfully parsed line %d\n", TREF(source_line));
+			fflush(stderr);
 		}
 	}
+	if (cmd_qlf.qlf & CQ_DUMP_AST_JSON) {
+		fprintf(stderr, "[DEBUG] Finished parsing loop, starting post-processing\n");
+		fflush(stderr);
+	}
 	rtn_src_chksum_digest(&checksum_ctx);
+	if (cmd_qlf.qlf & CQ_DUMP_AST_JSON) {
+		fprintf(stderr, "[DEBUG] Completed rtn_src_chksum_digest\n");
+		fflush(stderr);
+	}
 	close_source_file();
+	if (cmd_qlf.qlf & CQ_DUMP_AST_JSON) {
+		fprintf(stderr, "[DEBUG] Completed close_source_file\n");
+		fflush(stderr);
+	}
 	if (cmd_qlf.qlf & CQ_CE_PREPROCESS)
 		close_ceprep_file();
+	
+	/* DUMP AST HERE - before resolve_blocks() which may crash on some files */
+	if (cmd_qlf.qlf & CQ_DUMP_AST_JSON) {
+		fprintf(stderr, "[DEBUG] Dumping AST before resolve phase\n");
+		fflush(stderr);
+		ast_dump_json_complete();
+		fprintf(stderr, "[DEBUG] AST dump completed\n");
+		fflush(stderr);
+	}
+	
+	if (cmd_qlf.qlf & CQ_DUMP_AST_JSON) {
+		fprintf(stderr, "[DEBUG] Starting CGP_RESOLVE phase\n");
+		fflush(stderr);
+	}
 	cg_phase = CGP_RESOLVE;
-	if (t_orig.exorder.fl == &t_orig)	/* if no lines in routine, set up line 0 */
+	if (t_orig.exorder.fl == &t_orig) {	/* if no lines in routine, set up line 0 */
+		if (cmd_qlf.qlf & CQ_DUMP_AST_JSON) {
+			fprintf(stderr, "[DEBUG] No lines in routine, creating OC_LINESTART\n");
+			fflush(stderr);
+		}
 		newtriple(OC_LINESTART);
+	}
+	if (cmd_qlf.qlf & CQ_DUMP_AST_JSON) {
+		fprintf(stderr, "[DEBUG] About to create OC_RET\n");
+		fflush(stderr);
+	}
 	newtriple(OC_RET);			/* always provide a default QUIT */
+	if (cmd_qlf.qlf & CQ_DUMP_AST_JSON) {
+		fprintf(stderr, "[DEBUG] Setting mline_root.externalentry\n");
+		fflush(stderr);
+	}
 	mline_root.externalentry = t_orig.exorder.fl;
+	if (cmd_qlf.qlf & CQ_DUMP_AST_JSON) {
+		fprintf(stderr, "[DEBUG] About to start_fetches\n");
+		fflush(stderr);
+	}
 	start_fetches(OC_NOOP);
+	if (cmd_qlf.qlf & CQ_DUMP_AST_JSON) {
+		fprintf(stderr, "[DEBUG] About to resolve_blocks\n");
+		fflush(stderr);
+	}
 	resolve_blocks();
 	errknt = resolve_ref(errknt);
 	gvname2naked_optimize(&t_orig);
@@ -240,11 +325,11 @@ boolean_t compiler_startup(void)
 		if (errknt > HOPELESS_COMPILE)
 			list_line((char *)compile_terminated);
 	}
-	if ((!errknt || compile_w_err) && ((cmd_qlf.qlf & CQ_OBJECT) || (cmd_qlf.qlf & CQ_MACHINE_CODE)))
+	if ((!errknt || compile_w_err) && ((cmd_qlf.qlf & CQ_OBJECT) || (cmd_qlf.qlf & CQ_MACHINE_CODE)) && !(cmd_qlf.qlf & CQ_DUMP_AST_JSON))
 	{
 		obj_code(line_count, &checksum_ctx);
 		cg_phase = CGP_FINI;
-	} else if (!compile_w_err)
+	} else if (!compile_w_err && !(cmd_qlf.qlf & CQ_DUMP_AST_JSON))
 	{
 		TREF(dollar_zcstatus) = -ERR_ERRORSUMMARY;
 		gtm_putmsg_csa(CSA_ARG(NULL) VARLSTCNT(5) ERR_ZLINKFILE, 2, source_name_len, source_file_name, ERR_ZLNOOBJECT);
@@ -278,5 +363,11 @@ boolean_t compiler_startup(void)
 	indr_stringpool = stringpool;
 	stringpool = rts_stringpool;
 	REVERT;
+	if ((0 == errknt) && !((cmd_qlf.qlf & CQ_DUMP_AST_JSON))) {  /* Only do final processing if not dumping AST (which we already did) */
+		/* AST already dumped earlier if requested, so nothing to do here */
+	} else if ((0 != errknt) && !(cmd_qlf.qlf & CQ_DUMP_AST_JSON)) {
+		ast_dump_json_cleanup();	/* Clean up on error */
+	}
+	/* Note: AST dumping now happens earlier, before resolve phase */
 	return errknt ? TRUE : FALSE;
 }

@@ -47,6 +47,7 @@ typedef struct
 #define CQ_NAMEOFRTN		(1 << 13)	/* 0x2000 */
 #define CQ_DYNAMIC_LITERALS	(1 << 14)	/* 0x4000 */
 #define CQ_EMBED_SOURCE		(1 << 15)	/* 0x8000 */
+#define CQ_DUMP_AST_JSON	(1 << 16)	/* 0x10000 */
 
 /* TODO: add CQ_ALIGN_STRINGS to the default list below when alignment is supported */
 #define CQ_DEFAULT (CQ_WARNINGS | CQ_OBJECT | CQ_IGNORE | CQ_LOWER_LABELS | CQ_LINE_ENTRY | CQ_INLINE_LITERALS)

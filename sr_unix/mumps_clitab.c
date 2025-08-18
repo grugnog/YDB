@@ -36,6 +36,7 @@ static readonly CLI_ENTRY mumps_qual[] = {
 { "CROSS_REFERENCE", 	0, 0, 0, 0, 0, 0, VAL_DISALLOWED, 0, NON_NEG, 	VAL_N_A, 0},
 { "DEBUG", 		0, 0, 0, 0, 0, 0, VAL_DISALLOWED, 0, NON_NEG, 	VAL_N_A, 0},
 { "DIRECT_MODE", 	0, 0, 0, 0, 0, 0, VAL_DISALLOWED, 0, NON_NEG, 	VAL_N_A, 0},
+{ "DUMP_AST_JSON",	0, 0, 0, 0, 0, 0, VAL_DISALLOWED, 0, NON_NEG, 	VAL_N_A, 0},
 { "DYNAMIC_LITERALS", 	0, 0, 0, 0, 0, 0, VAL_DISALLOWED, 0, NEG, 	VAL_N_A, 0},
 { "EMBED_SOURCE", 	0, 0, 0, 0, 0, 0, VAL_DISALLOWED, 0, NEG, 	VAL_N_A, 0},
 { "IGNORE", 		0, 0, 0, 0, 0, 0, VAL_DISALLOWED, 0, NEG, 	VAL_N_A, 0},

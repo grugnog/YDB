@@ -139,4 +139,8 @@ void get_cmd_qlf(command_qualifier *qualif)
 		qualif->qlf |= CQ_EMBED_SOURCE;
 	else if (cli_negated("EMBED_SOURCE"))
 		qualif->qlf &= ~CQ_EMBED_SOURCE;
+	if (CLI_PRESENT == cli_present("DUMP_AST_JSON"))
+		qualif->qlf |= CQ_DUMP_AST_JSON;
+	else if (cli_negated("DUMP_AST_JSON"))
+		qualif->qlf &= ~CQ_DUMP_AST_JSON;
 }
