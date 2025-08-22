@@ -38,47 +38,12 @@ static const char* oprclass_to_string(operclass class);
 /* Initialize JSON AST dumping */
 void ast_dump_json_init(void)
 {
-	FILE *debug_file = fopen("/workspace/debug_init.log", "w");
-	if (debug_file) {
-		fprintf(debug_file, "ast_dump_json_init() called\n");
-		fflush(debug_file);
-		fclose(debug_file);
-	}
-	
-	fprintf(stderr, "[DEBUG] ast_dump_json_init() called\n");
-	fflush(stderr);
-	
 	if (!(cmd_qlf.qlf & CQ_DUMP_AST_JSON)) {
-		fprintf(stderr, "[DEBUG] ast_dump_json_init() - flag not set, returning\n");
-		fflush(stderr);
-		debug_file = fopen("/workspace/debug_init.log", "a");
-		if (debug_file) {
-			fprintf(debug_file, "flag not set, returning\n");
-			fclose(debug_file);
-		}
 		return;
 	}
-
-	fprintf(stderr, "[DEBUG] ast_dump_json_init() - flag is set, initializing\n");
-	fflush(stderr);
 	
-	debug_file = fopen("/workspace/debug_init.log", "a");
-	if (debug_file) {
-		fprintf(debug_file, "flag is set, initializing\n");
-		fclose(debug_file);
-	}
-	
-	// Just mark that AST dumping was requested
-	// Don't do ANYTHING else that might interfere with compilation
+	/* Just mark that AST dumping was requested */
 	ast_json_file = NULL;
-	
-	fprintf(stderr, "[DEBUG] ast_dump_json_init() completed\n");
-	fflush(stderr);
-	debug_file = fopen("/workspace/debug_init.log", "a");
-	if (debug_file) {
-		fprintf(debug_file, "completed\n");
-		fclose(debug_file);
-	}
 }/* Dump the entire AST as JSON */
 void ast_dump_json_complete(void)
 {
@@ -88,43 +53,11 @@ void ast_dump_json_complete(void)
 	char base_name_copy[256];
 	char *dot_pos;
 	
-	// Check if we should dump AST
-	{
-		FILE *debug_file = fopen("/workspace/debug_complete.log", "w");
-		if (debug_file) {
-			fprintf(debug_file, "ast_dump_json_complete() called\n");
-			fclose(debug_file);
-		}
-	}
-	
-	fprintf(stderr, "[DEBUG] ast_dump_json_complete() called\n");
-	fflush(stderr);
-	
 	if (!(cmd_qlf.qlf & CQ_DUMP_AST_JSON)) {
-		fprintf(stderr, "[DEBUG] ast_dump_json_complete() - flag not set, returning\n");
-		fflush(stderr);
-		{
-			FILE *debug_file = fopen("/workspace/debug_complete.log", "a");
-			if (debug_file) {
-				fprintf(debug_file, "flag not set, returning\n");
-				fclose(debug_file);
-			}
-		}
 		return;
 	}
 
-	{
-		FILE *debug_file = fopen("/workspace/debug_complete.log", "a");
-		if (debug_file) {
-			fprintf(debug_file, "flag is set, proceeding\n");
-			fclose(debug_file);
-		}
-	}
-
-	fprintf(stderr, "[DEBUG] ast_dump_json_complete() - flag is set, proceeding\n");
-	fflush(stderr);
-	
-	// Create JSON filename based on source filename - do this NOW when it's safe
+	/* Create JSON filename based on source filename */
 	if (source_name_len > 0 && source_name_len < sizeof(base_name_copy)) {
 		/* Make a copy to avoid modifying the original */
 		strncpy(base_name_copy, (char*)source_file_name, sizeof(base_name_copy)-1);
@@ -141,7 +74,7 @@ void ast_dump_json_complete(void)
 		strcpy(json_filename, "mumps_ast.json");
 	}
 	
-	// NOW open the file - after all compilation is done
+	/* Open the file for writing */
 	ast_json_file = fopen(json_filename, "w");
 	if (!ast_json_file) {
 		printf("Warning: Could not create AST JSON file %s\n", json_filename);
