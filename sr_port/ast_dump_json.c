@@ -378,8 +378,25 @@ static void dump_operand_json(oprtype *opr, boolean_t is_last)
 			{
 				mvar *mv = opr->oprval.vref;
 				if (mv && mv->mvname.addr && mv->mvname.len > 0) {
+					const char *scope;
+					
+					/* Determine scope based on variable name prefix */
+					if (mv->mvname.len > 0) {
+						char first_char = mv->mvname.addr[0];
+						if (first_char == '^') {
+							scope = "global";
+						} else if (first_char == '$') {
+							scope = "intrinsic"; 
+						} else {
+							scope = "local";
+						}
+					} else {
+						scope = "unknown";
+					}
+					
+					/* Output variable name */
 					if (fprintf(ast_json_file, "\"") < 0) return;
-					/* Output the variable name, escaping JSON special characters */
+					/* Escape JSON special characters in the variable name */
 					for (int i = 0; i < mv->mvname.len; i++) {
 						char c = mv->mvname.addr[i];
 						switch (c) {
@@ -391,9 +408,15 @@ static void dump_operand_json(oprtype *opr, boolean_t is_last)
 							default:   if (fprintf(ast_json_file, "%c", c) < 0) return; break;
 						}
 					}
-					if (fprintf(ast_json_file, "\"") < 0) return;
+					if (fprintf(ast_json_file, "\",\n") < 0) return;
+					fflush(ast_json_file);
+					write_indent();
+					if (fprintf(ast_json_file, "\"scope\": \"%s\"", scope) < 0) return;
 				} else {
-					if (fprintf(ast_json_file, "\"<unknown>\"") < 0) return;
+					if (fprintf(ast_json_file, "\"<unknown>\",\n") < 0) return;
+					fflush(ast_json_file);
+					write_indent();
+					if (fprintf(ast_json_file, "\"scope\": \"unknown\"") < 0) return;
 				}
 			}
 			break;
