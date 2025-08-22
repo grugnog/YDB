@@ -16,6 +16,7 @@
 #include "cmd_qlf.h"
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 #include "ast_dump_json.h"
 
 GBLREF triple		t_orig;
@@ -28,12 +29,25 @@ LITREF char *oc_tab_graphic[];
 static FILE *ast_json_file = NULL;
 static int indent_level = 0;
 
+/* Triple ID mapping for removing memory addresses */
+typedef struct triple_map_entry {
+	triple *trip_ptr;
+	int triple_id;
+} triple_map_entry;
+
+static triple_map_entry *triple_id_map = NULL;
+static int triple_count = 0;
+static int next_triple_id = 1;
+
 /* Forward declarations */
-static void dump_triple_json(triple *trip, boolean_t is_last);
+static void dump_triple_json(triple *trip, boolean_t is_last, int triple_id);
 static void dump_operand_json(oprtype *opr, boolean_t is_last);
 static void write_indent(void);
 static const char* opcode_to_string(opctype opcode);
 static const char* oprclass_to_string(operclass class);
+static void build_triple_id_map(void);
+static int get_triple_id(triple *trip);
+static void cleanup_triple_id_map(void);
 
 /* Initialize JSON AST dumping */
 void ast_dump_json_init(void)
@@ -44,8 +58,7 @@ void ast_dump_json_init(void)
 	
 	/* Just mark that AST dumping was requested */
 	ast_json_file = NULL;
-}/* Dump the entire AST as JSON */
-void ast_dump_json_complete(void)
+}void ast_dump_json_complete(void)
 {
 	triple *trip;
 	int count = 0;
@@ -95,6 +108,9 @@ void ast_dump_json_complete(void)
 		return;
 	}
 
+	/* Build the triple ID mapping first */
+	build_triple_id_map();
+
 	if (fprintf(ast_json_file, "{\n") < 0) {
 		printf("Warning: Failed to write to AST JSON file\n");
 		fclose(ast_json_file);
@@ -143,11 +159,12 @@ void ast_dump_json_complete(void)
 			/* Add safety check for the triple itself */
 			if ((void*)trip < (void*)0x1000) {
 				fprintf(ast_json_file, "    {\n");
-				fprintf(ast_json_file, "      \"error\": \"Invalid triple pointer: %p\"\n", (void*)trip);
+				fprintf(ast_json_file, "      \"error\": \"Invalid triple pointer\",\n");
+				fprintf(ast_json_file, "      \"triple_id\": %d\n", current);
 				fprintf(ast_json_file, "    }%s\n", (current == count) ? "" : ",");
 				continue;
 			}
-			dump_triple_json(trip, (current == count));
+			dump_triple_json(trip, (current == count), get_triple_id(trip));
 		}
 	}
 	
@@ -156,6 +173,8 @@ void ast_dump_json_complete(void)
 	fprintf(ast_json_file, "]\n");
 	fprintf(ast_json_file, "}\n");
 	
+	/* Clean up */
+	cleanup_triple_id_map();
 	fclose(ast_json_file);
 	ast_json_file = NULL;
 }
@@ -163,6 +182,7 @@ void ast_dump_json_complete(void)
 /* Clean up if needed */
 void ast_dump_json_cleanup(void)
 {
+	cleanup_triple_id_map();
 	if (ast_json_file) {
 		fclose(ast_json_file);
 		ast_json_file = NULL;
@@ -170,7 +190,7 @@ void ast_dump_json_cleanup(void)
 }
 
 /* Dump a single triple as JSON */
-static void dump_triple_json(triple *trip, boolean_t is_last)
+static void dump_triple_json(triple *trip, boolean_t is_last, int triple_id)
 {
 	if (!ast_json_file || !trip)
 		return;
@@ -180,7 +200,7 @@ static void dump_triple_json(triple *trip, boolean_t is_last)
 	indent_level++;
 	
 	write_indent();
-	fprintf(ast_json_file, "\"address\": \"%p\",\n", (void*)trip);
+	fprintf(ast_json_file, "\"triple_id\": %d,\n", triple_id);
 	
 	write_indent();
 	fprintf(ast_json_file, "\"opcode\": \"%s\",\n", opcode_to_string(trip->opcode));
@@ -245,7 +265,17 @@ static void dump_operand_json(oprtype *opr, boolean_t is_last)
 	fflush(ast_json_file);
 	
 	write_indent();
-	if (fprintf(ast_json_file, "\"value\": ") < 0) return;
+	/* Use different field names for different operand types for clarity */
+	switch (opr->oprclass) {
+		case TRIP_REF:
+		case TNXT_REF:
+		case TJMP_REF:
+			if (fprintf(ast_json_file, "\"target_triple_id\": ") < 0) return;
+			break;
+		default:
+			if (fprintf(ast_json_file, "\"value\": ") < 0) return;
+			break;
+	}
 	fflush(ast_json_file);
 	
 	switch (opr->oprclass) {
@@ -253,56 +283,48 @@ static void dump_operand_json(oprtype *opr, boolean_t is_last)
 			if (fprintf(ast_json_file, "null") < 0) return;
 			break;
 		case TRIP_REF:
-			if (fprintf(ast_json_file, "\"%p\"", (void*)opr->oprval.tref) < 0) return;
-			break;
 		case TNXT_REF:
-			if (fprintf(ast_json_file, "\"%p\"", (void*)opr->oprval.tref) < 0) return;
+		case TJMP_REF:
+			{
+				int target_id = get_triple_id(opr->oprval.tref);
+				if (target_id > 0) {
+					if (fprintf(ast_json_file, "%d", target_id) < 0) return;
+				} else {
+					if (fprintf(ast_json_file, "null") < 0) return;
+				}
+			}
 			break;
 		case ILIT_REF:
 			if (fprintf(ast_json_file, "%d", opr->oprval.ilit) < 0) return;
 			break;
 		case MLIT_REF:
-			if (fprintf(ast_json_file, "\"%p\"", (void*)opr->oprval.mlit) < 0) return;
+		case MNXL_REF:
+		case MFUN_REF:
+		case CDIDX_REF:
+			/* For now, use a placeholder for literal references */
+			if (fprintf(ast_json_file, "\"<literal>\"") < 0) return;
 			break;
 		case MVAR_REF:
-			if (fprintf(ast_json_file, "\"%p\"", (void*)opr->oprval.vref) < 0) return;
+			/* For now, use a placeholder for variable references */
+			if (fprintf(ast_json_file, "\"<variable>\"") < 0) return;
 			break;
 		case MLAB_REF:
-			if (fprintf(ast_json_file, "\"%p\"", (void*)opr->oprval.lab) < 0) return;
-			break;
-		case MNXL_REF:
-			if (fprintf(ast_json_file, "\"%p\"", (void*)opr->oprval.mlit) < 0) return;
-			break;
-		case MFUN_REF:
-			if (fprintf(ast_json_file, "\"%p\"", (void*)opr->oprval.mlit) < 0) return;
-			break;
-		case TJMP_REF:
-			if (fprintf(ast_json_file, "\"%p\"", (void*)opr->oprval.tref) < 0) return;
+			/* For now, use a placeholder for label references */
+			if (fprintf(ast_json_file, "\"<label>\"") < 0) return;
 			break;
 		case INDR_REF:
-			if (fprintf(ast_json_file, "\"%p\"", (void*)opr->oprval.indr) < 0) return;
-			break;
-		case CDIDX_REF:
-			if (fprintf(ast_json_file, "\"%p\"", (void*)opr->oprval.mlit) < 0) return;
+			/* For now, use a placeholder for indirect references */
+			if (fprintf(ast_json_file, "\"<indirect>\"") < 0) return;
 			break;
 		case CDLT_REF:
-			if (fprintf(ast_json_file, "\"%p\"", (void*)opr->oprval.cdlt) < 0) return;
+			/* For now, use a placeholder for code literal references */
+			if (fprintf(ast_json_file, "\"<code_literal>\"") < 0) return;
 			break;
 		case TEMP_REF:
-			if (fprintf(ast_json_file, "%u", opr->oprval.temp) < 0) return;
-			break;
 		case TVAR_REF:
-			if (fprintf(ast_json_file, "%u", opr->oprval.temp) < 0) return;
-			break;
 		case TVAD_REF:
-			if (fprintf(ast_json_file, "%u", opr->oprval.temp) < 0) return;
-			break;
 		case TCAD_REF:
-			if (fprintf(ast_json_file, "%u", opr->oprval.temp) < 0) return;
-			break;
 		case TVAL_REF:
-			if (fprintf(ast_json_file, "%u", opr->oprval.temp) < 0) return;
-			break;
 		case TSIZ_REF:
 			if (fprintf(ast_json_file, "%u", opr->oprval.temp) < 0) return;
 			break;
@@ -367,4 +389,59 @@ static const char* oprclass_to_string(operclass class)
 		case OCNT_REF: return "OCNT_REF";
 		default: return "UNKNOWN_CLASS";
 	}
+}
+
+/* Build a mapping from triple pointers to sequential IDs */
+static void build_triple_id_map(void)
+{
+	triple *trip;
+	int i = 0;
+	
+	/* First count the triples */
+	triple_count = 0;
+	dqloop(&t_orig, exorder, trip) {
+		if (trip) triple_count++;
+	}
+	
+	if (triple_count == 0) return;
+	
+	/* Allocate the mapping array */
+	triple_id_map = (triple_map_entry*)malloc(triple_count * sizeof(triple_map_entry));
+	if (!triple_id_map) return;
+	
+	/* Build the mapping */
+	next_triple_id = 1;
+	dqloop(&t_orig, exorder, trip) {
+		if (trip && i < triple_count) {
+			triple_id_map[i].trip_ptr = trip;
+			triple_id_map[i].triple_id = next_triple_id++;
+			i++;
+		}
+	}
+}
+
+/* Get the triple ID for a given triple pointer */
+static int get_triple_id(triple *trip)
+{
+	int i;
+	
+	if (!trip || !triple_id_map) return -1;
+	
+	for (i = 0; i < triple_count; i++) {
+		if (triple_id_map[i].trip_ptr == trip) {
+			return triple_id_map[i].triple_id;
+		}
+	}
+	return -1;
+}
+
+/* Clean up the triple ID mapping */
+static void cleanup_triple_id_map(void)
+{
+	if (triple_id_map) {
+		free(triple_id_map);
+		triple_id_map = NULL;
+	}
+	triple_count = 0;
+	next_triple_id = 1;
 }
