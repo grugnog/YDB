@@ -12,6 +12,7 @@
 
 #include "mdef.h"
 #include "compiler.h"
+#include "mvalconv.h"
 #include "opcode.h"
 #include "cmd_qlf.h"
 #include <stdio.h>
@@ -275,6 +276,14 @@ static void dump_operand_json(oprtype *opr, boolean_t is_last)
 		case MVAR_REF:
 			if (fprintf(ast_json_file, "\"variable_name\": ") < 0) return;
 			break;
+		case MLIT_REF:
+			if (fprintf(ast_json_file, "\"literal_value\": ") < 0) return;
+			break;
+		case MNXL_REF:
+		case MFUN_REF:
+		case CDIDX_REF:
+			if (fprintf(ast_json_file, "\"value\": ") < 0) return;
+			break;
 		default:
 			if (fprintf(ast_json_file, "\"value\": ") < 0) return;
 			break;
@@ -301,10 +310,68 @@ static void dump_operand_json(oprtype *opr, boolean_t is_last)
 			if (fprintf(ast_json_file, "%d", opr->oprval.ilit) < 0) return;
 			break;
 		case MLIT_REF:
+			{
+				mliteral *mlit = opr->oprval.mlit;
+				
+				if (mlit && mlit->v.mvtype) {
+					if (mlit->v.mvtype & MV_STR) {
+						/* String literal */
+						if (fprintf(ast_json_file, "\"") < 0) return;
+						/* Escape JSON special characters in the string */
+						if (mlit->v.str.addr && mlit->v.str.len > 0) {
+							for (int i = 0; i < mlit->v.str.len; i++) {
+								char c = mlit->v.str.addr[i];
+								switch (c) {
+									case '"':  if (fprintf(ast_json_file, "\\\"") < 0) return; break;
+									case '\\': if (fprintf(ast_json_file, "\\\\") < 0) return; break;
+									case '\n': if (fprintf(ast_json_file, "\\n") < 0) return; break;
+									case '\r': if (fprintf(ast_json_file, "\\r") < 0) return; break;
+									case '\t': if (fprintf(ast_json_file, "\\t") < 0) return; break;
+									default:   if (fprintf(ast_json_file, "%c", c) < 0) return; break;
+								}
+							}
+						}
+						if (fprintf(ast_json_file, "\",\n") < 0) return;
+						fflush(ast_json_file);
+						write_indent();
+						if (fprintf(ast_json_file, "\"literal_type\": \"string\"") < 0) return;
+						
+					} else if (mlit->v.mvtype & MV_INT) {
+						/* Integer literal - extract directly from m[1] */
+						int int_val = mlit->v.m[1] / MV_BIAS;
+						if (fprintf(ast_json_file, "%d,\n", int_val) < 0) return;
+						fflush(ast_json_file);
+						write_indent();
+						if (fprintf(ast_json_file, "\"literal_type\": \"integer\"") < 0) return;
+						
+					} else if (mlit->v.mvtype & MV_NM) {
+						/* Numeric literal - use conversion function */
+						double num_val = mval2double(&mlit->v);
+						if (fprintf(ast_json_file, "%.10g,\n", num_val) < 0) return;
+						fflush(ast_json_file);
+						write_indent();
+						if (fprintf(ast_json_file, "\"literal_type\": \"numeric\"") < 0) return;
+						
+					} else {
+						/* Unknown type - fallback */
+						if (fprintf(ast_json_file, "\"<unknown_mval_type>\",\n") < 0) return;
+						fflush(ast_json_file);
+						write_indent();
+						if (fprintf(ast_json_file, "\"literal_type\": \"unknown\"") < 0) return;
+					}
+				} else {
+					/* Null or invalid literal */
+					if (fprintf(ast_json_file, "null,\n") < 0) return;
+					fflush(ast_json_file);
+					write_indent();
+					if (fprintf(ast_json_file, "\"literal_type\": \"null\"") < 0) return;
+				}
+			}
+			break;
 		case MNXL_REF:
 		case MFUN_REF:
 		case CDIDX_REF:
-			/* For now, use a placeholder for literal references */
+			/* For now, use a placeholder for these other references */
 			if (fprintf(ast_json_file, "\"<literal>\"") < 0) return;
 			break;
 		case MVAR_REF:
