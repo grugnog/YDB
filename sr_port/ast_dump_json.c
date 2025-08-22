@@ -272,6 +272,9 @@ static void dump_operand_json(oprtype *opr, boolean_t is_last)
 		case TJMP_REF:
 			if (fprintf(ast_json_file, "\"target_triple_id\": ") < 0) return;
 			break;
+		case MVAR_REF:
+			if (fprintf(ast_json_file, "\"variable_name\": ") < 0) return;
+			break;
 		default:
 			if (fprintf(ast_json_file, "\"value\": ") < 0) return;
 			break;
@@ -305,8 +308,27 @@ static void dump_operand_json(oprtype *opr, boolean_t is_last)
 			if (fprintf(ast_json_file, "\"<literal>\"") < 0) return;
 			break;
 		case MVAR_REF:
-			/* For now, use a placeholder for variable references */
-			if (fprintf(ast_json_file, "\"<variable>\"") < 0) return;
+			{
+				mvar *mv = opr->oprval.vref;
+				if (mv && mv->mvname.addr && mv->mvname.len > 0) {
+					if (fprintf(ast_json_file, "\"") < 0) return;
+					/* Output the variable name, escaping JSON special characters */
+					for (int i = 0; i < mv->mvname.len; i++) {
+						char c = mv->mvname.addr[i];
+						switch (c) {
+							case '"':  if (fprintf(ast_json_file, "\\\"") < 0) return; break;
+							case '\\': if (fprintf(ast_json_file, "\\\\") < 0) return; break;
+							case '\n': if (fprintf(ast_json_file, "\\n") < 0) return; break;
+							case '\r': if (fprintf(ast_json_file, "\\r") < 0) return; break;
+							case '\t': if (fprintf(ast_json_file, "\\t") < 0) return; break;
+							default:   if (fprintf(ast_json_file, "%c", c) < 0) return; break;
+						}
+					}
+					if (fprintf(ast_json_file, "\"") < 0) return;
+				} else {
+					if (fprintf(ast_json_file, "\"<unknown>\"") < 0) return;
+				}
+			}
 			break;
 		case MLAB_REF:
 			/* For now, use a placeholder for label references */
