@@ -110,6 +110,8 @@ ydb_timer_start
 ydb_timer_start_t
 ydb_tp_s
 ydb_tp_st
-ydb_zstatus
-ydb_zwr2str_s
+ydb_zstatub_zwr2str_s
 ydb_zwr2str_st
+ast_dump_json_init
+ast_dump_json_complete
+ast_dump_json_cleanup

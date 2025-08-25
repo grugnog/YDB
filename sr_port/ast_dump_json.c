@@ -327,8 +327,13 @@ static void dump_operand_json(oprtype *opr, boolean_t is_last)
 									case '\n': if (fprintf(ast_json_file, "\\n") < 0) return; break;
 									case '\r': if (fprintf(ast_json_file, "\\r") < 0) return; break;
 									case '\t': if (fprintf(ast_json_file, "\\t") < 0) return; break;
-									default:   if (fprintf(ast_json_file, "%c", c) < 0) return; break;
-								}
+                                                                        default:
+                                                                            if ((unsigned char)c < 0x20 || (unsigned char)c >= 0x7F) {
+                                                                                if (fprintf(ast_json_file, "\\u%04x", (unsigned char)c) < 0) return;
+                                                                            } else {
+                                                                                if (fprintf(ast_json_file, "%c", c) < 0) return;
+                                                                            }
+                                                                            break;								}
 							}
 						}
 						if (fprintf(ast_json_file, "\",\n") < 0) return;
@@ -405,7 +410,13 @@ static void dump_operand_json(oprtype *opr, boolean_t is_last)
 							case '\n': if (fprintf(ast_json_file, "\\n") < 0) return; break;
 							case '\r': if (fprintf(ast_json_file, "\\r") < 0) return; break;
 							case '\t': if (fprintf(ast_json_file, "\\t") < 0) return; break;
-							default:   if (fprintf(ast_json_file, "%c", c) < 0) return; break;
+                                                        default:
+                                                            if ((unsigned char)c < 0x20 || (unsigned char)c >= 0x7F) {
+                                                                if (fprintf(ast_json_file, "\\u%04x", (unsigned char)c) < 0) return;
+                                                            } else {
+                                                                if (fprintf(ast_json_file, "%c", c) < 0) return;
+                                                            }
+                                                            break;
 						}
 					}
 					if (fprintf(ast_json_file, "\",\n") < 0) return;

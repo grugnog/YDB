@@ -254,10 +254,17 @@ boolean_t compiler_startup(void)
 	}
 	
 	/* DUMP AST HERE - after all compilation phases complete */
+	fprintf(stderr, "DEBUG: compiler_startup: Checking CQ_DUMP_AST_JSON flag, cmd_qlf.qlf=0x%x\n", cmd_qlf.qlf);
+	fflush(stderr);
 	if (cmd_qlf.qlf & CQ_DUMP_AST_JSON) {
+		fprintf(stderr, "DEBUG: CQ_DUMP_AST_JSON flag is SET, calling AST dump functions\n");
+		fflush(stderr);
 		ast_dump_json_init();      /* Initialize just before use */
 		ast_dump_json_complete();  /* Dump complete AST */
 		ast_dump_json_cleanup();   /* Clean up */
+	} else {
+		fprintf(stderr, "DEBUG: CQ_DUMP_AST_JSON flag is NOT SET\n");
+		fflush(stderr);
 	}
 	if (cmd_qlf.qlf & CQ_LIST || cmd_qlf.qlf & CQ_CROSS_REFERENCE)
 		close_list_file();
