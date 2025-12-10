@@ -377,6 +377,7 @@ int	ydb_init(void);
 int	ydb_main_lang_init(int langid, void *parm);	/* Warning! Intended for use by Go wrapper only */
 void	*ydb_malloc(size_t size);
 int	ydb_message(int status, ydb_buffer_t *msg_buff);
+int	ydb_parse_mumps_to_json(const char *code, char *json_filename_out, size_t filename_len, char *error_out, size_t error_len);
 int	ydb_sig_dispatch(ydb_buffer_t *errstr, int signum);
 int	ydb_stdout_stderr_adjust(void);
 int	ydb_thread_is_main(void);

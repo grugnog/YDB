@@ -1,0 +1,6 @@
+# Include documentation files
+include README.md
+include ../LICENSE
+
+# Include library files
+recursive-include ydb_parser/lib *.so *.dylib

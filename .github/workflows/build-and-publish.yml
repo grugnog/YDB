@@ -1,0 +1,167 @@
+name: Build and Publish Python Package
+
+on:
+  push:
+    branches: [ ast-dump ]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [ ast-dump ]
+  release:
+    types: [created]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-docker:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        platform: [linux/amd64, linux/arm64]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: ${{ matrix.platform }}
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  build-wheels:
+    runs-on: ubuntu-latest
+    needs: build-docker
+    strategy:
+      matrix:
+        platform: [linux/amd64, linux/arm64]
+        os-version: ['ubuntu-22.04', 'ubuntu-20.04']
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        if: matrix.platform == 'linux/arm64'
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install build tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install build wheel
+
+      - name: Extract libyottadb.so from Docker
+        run: |
+          PLATFORM_TAG=$(echo "${{ matrix.platform }}" | sed 's/\//-/g')
+          docker run --rm --platform=${{ matrix.platform }} \
+            -v "$(pwd):/workspace" \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }} \
+            /bin/bash -c "cp /opt/yottadb/current/libyottadb.so /workspace/python/ydb_parser/lib/libyottadb.so"
+
+      - name: Create lib directory
+        run: mkdir -p python/ydb_parser/lib
+
+      - name: Build wheel
+        run: |
+          cd python
+          python -m build --wheel
+          WHEEL_FILE=$(ls dist/*.whl)
+          NEW_NAME=$(echo $WHEEL_FILE | sed "s/\.whl/-${{ matrix.os-version }}-$(echo '${{ matrix.platform }}' | cut -d'/' -f2).whl/")
+          mv "$WHEEL_FILE" "$NEW_NAME"
+
+      - name: Upload wheel as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheel-${{ matrix.os-version }}-${{ matrix.platform }}
+          path: python/dist/*.whl
+          retention-days: 7
+
+  test:
+    runs-on: ubuntu-latest
+    needs: build-wheels
+    strategy:
+      matrix:
+        python-version: ['3.8', '3.9', '3.10', '3.11', '3.12']
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Download wheels
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wheel-ubuntu-22.04-linux-amd64
+          path: wheels
+
+      - name: Install wheel
+        run: |
+          WHEEL=$(find wheels -name "*.whl" | head -1)
+          pip install "$WHEEL"
+
+      - name: Run tests
+        run: |
+          cd python
+          python -c "from ydb_parser import parse_mumps; result = parse_mumps(' write \"test\",!'); print(f'✓ Test passed, triples: {len(result.get(\"triples\", []))}')"
+
+  publish-release:
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.event_name == 'release' || startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    steps:
+      - name: Download all wheels
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wheel-*
+          path: wheels
+
+      - name: Attach wheels to release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: wheels/**/*.whl
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

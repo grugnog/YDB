@@ -163,6 +163,8 @@ RUN --mount=type=bind,from=ydb-release-builder,source=/tmp/yottadb-release,targe
                     libcurl4 \
                     nodejs \
                     libncurses6 \
+                    python3 \
+                    python3-pip \
                     && \
     if [ "$ENABLE_ASAN" = "ON" ]; then apt-get install -y --no-install-recommends libasan8; fi && \
     /tmp/ydb-release/ydbinstall --utf8 --installdir /opt/yottadb/current && \

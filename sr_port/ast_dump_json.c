@@ -63,7 +63,7 @@ void ast_dump_json_init(void)
 {
 	triple *trip;
 	int count = 0;
-	char json_filename[256];
+	char json_filename[1024];
 	char base_name_copy[256];
 	char *dot_pos;
 	
@@ -72,7 +72,7 @@ void ast_dump_json_init(void)
 	}
 
 	/* Create JSON filename based on source filename */
-	if (source_name_len > 0 && source_name_len < sizeof(base_name_copy)) {
+	if (source_name_len > 0 && source_name_len < (sizeof(base_name_copy) - 10)) {
 		/* Make a copy to avoid modifying the original */
 		strncpy(base_name_copy, (char*)source_file_name, sizeof(base_name_copy)-1);
 		base_name_copy[sizeof(base_name_copy)-1] = '\0';
@@ -80,10 +80,8 @@ void ast_dump_json_init(void)
 		dot_pos = strrchr(base_name_copy, '.');
 		if (dot_pos != NULL) {
 			*dot_pos = '\0';  /* Null terminate at the dot */
-			snprintf(json_filename, sizeof(json_filename), "%s_ast.json", base_name_copy);
-		} else {
-			snprintf(json_filename, sizeof(json_filename), "%s_ast.json", base_name_copy);
 		}
+		snprintf(json_filename, sizeof(json_filename), "%s_ast.json", base_name_copy);
 	} else {
 		strcpy(json_filename, "mumps_ast.json");
 	}
