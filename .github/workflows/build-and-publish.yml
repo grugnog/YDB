@@ -135,12 +135,17 @@ jobs:
       - name: Download wheels
         uses: actions/download-artifact@v4
         with:
-          pattern: wheel-ubuntu-22.04-linux-amd64
+          pattern: wheel-ubuntu-22.04-amd64
           path: wheels
 
       - name: Install wheel
         run: |
           WHEEL=$(find wheels -name "*.whl" | head -1)
+          if [ -z "$WHEEL" ]; then
+            echo "No wheel found!"
+            ls -R wheels
+            exit 1
+          fi
           pip install "$WHEEL"
 
       - name: Run tests
