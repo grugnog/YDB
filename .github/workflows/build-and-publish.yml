@@ -105,10 +105,8 @@ jobs:
         run: |
           cd python
           python -m build --wheel
-          PLATFORM_ARCH=$(echo '${{ matrix.platform }}' | cut -d'/' -f2)
-          WHEEL_FILE=$(ls dist/*.whl)
-          NEW_NAME=$(echo $WHEEL_FILE | sed "s/\.whl/-${{ matrix.os-version }}-${PLATFORM_ARCH}.whl/")
-          mv "$WHEEL_FILE" "$NEW_NAME"
+          # Keep the wheel filename as-is, we'll organize by artifact name
+          ls -lh dist/
 
       - name: Upload wheel
         uses: actions/upload-artifact@v4
