@@ -169,7 +169,8 @@ jobs:
 
       - name: Run tests
         run: |
-          cd python
+          # Run from a different directory to ensure we're using the installed package
+          cd /tmp
           python -c "from ydb_parser import parse_mumps; result = parse_mumps(' write \"test\",!'); print(f'✓ Test passed, triples: {len(result.get(\"triples\", []))}')"
 
   publish-release:
