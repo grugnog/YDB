@@ -96,18 +96,34 @@ jobs:
       - name: Extract libyottadb.so from Docker
         run: |
           IMAGE_NAME_LOWER=$(echo "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')
+          echo "Pulling and extracting from ${IMAGE_NAME_LOWER}:${{ github.ref_name }}"
           docker run --rm --platform=${{ matrix.platform }} \
+            --entrypoint=/bin/bash \
             -v "$(pwd):/workspace" \
             ${IMAGE_NAME_LOWER}:${{ github.ref_name }} \
-            /bin/bash -c "cp /opt/yottadb/current/libyottadb.so /workspace/python/ydb_parser/lib/libyottadb.so"
+            -c "ls -la /opt/yottadb/current/libyottadb.so && cp /opt/yottadb/current/libyottadb.so /workspace/python/ydb_parser/lib/libyottadb.so && ls -la /workspace/python/ydb_parser/lib/"
+      
+      - name: Verify extraction
+        run: |
+          echo "=== Checking extracted library ==="
+          ls -lh python/ydb_parser/lib/
+          file python/ydb_parser/lib/libyottadb.so
 
       - name: Build wheel
         run: |
           cd python
           # Verify library exists before building
-          ls -lh ydb_parser/lib/
+          echo "=== Checking for libyottadb.so ==="
+          ls -lh ydb_parser/lib/ || echo "lib directory doesn't exist"
+          if [ -f ydb_parser/lib/libyottadb.so ]; then
+            echo "Found libyottadb.so: $(ls -lh ydb_parser/lib/libyottadb.so)"
+          else
+            echo "ERROR: libyottadb.so not found!"
+            exit 1
+          fi
           python -m build --wheel
           # Verify wheel contents
+          echo "=== Wheel contents ==="
           unzip -l dist/*.whl | grep -E "(libyottadb|\.so)" || echo "No .so files in wheel"
           ls -lh dist/
 
