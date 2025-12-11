@@ -36,16 +36,19 @@ class BuildWithLibrary(build_py):
         
         # Find libyottadb.so
         lib_locations = [
-            os.environ.get('ydb_dist'),
-            '/opt/yottadb/current',
-            str(Path(__file__).parent.parent / 'build'),
+            # Check source tree first (for build process)
+            str(Path(__file__).parent / 'ydb_parser' / 'lib' / 'libyottadb.so'),
+            # Then check standard locations
+            os.path.join(os.environ.get('ydb_dist', ''), 'libyottadb.so'),
+            '/opt/yottadb/current/libyottadb.so',
+            str(Path(__file__).parent.parent / 'build' / 'libyottadb.so'),
         ]
         
         libyottadb = None
-        for loc in lib_locations:
-            if not loc:
+        for lib_path_str in lib_locations:
+            if not lib_path_str:
                 continue
-            lib_path = Path(loc) / 'libyottadb.so'
+            lib_path = Path(lib_path_str)
             if lib_path.exists():
                 libyottadb = lib_path
                 break

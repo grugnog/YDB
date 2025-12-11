@@ -104,8 +104,11 @@ jobs:
       - name: Build wheel
         run: |
           cd python
+          # Verify library exists before building
+          ls -lh ydb_parser/lib/
           python -m build --wheel
-          # Keep the wheel filename as-is, we'll organize by artifact name
+          # Verify wheel contents
+          unzip -l dist/*.whl | grep -E "(libyottadb|\.so)" || echo "No .so files in wheel"
           ls -lh dist/
 
       - name: Upload wheel
@@ -145,6 +148,8 @@ jobs:
             exit 1
           fi
           pip install "$WHEEL"
+          # Check what was installed
+          python -c "import ydb_parser; from pathlib import Path; pkg_path = Path(ydb_parser.__file__).parent; print(f'Package installed at: {pkg_path}'); import os; [print(f'  {f}') for f in os.listdir(pkg_path)]"
 
       - name: Run tests
         run: |
