@@ -175,6 +175,10 @@ RUN --mount=type=bind,from=ydb-release-builder,source=/tmp/yottadb-release,targe
     rm -rf /var/lib/apt/lists/* && \
     rm -rf /tmp/ydb-release
 
+# Install Python ydb_parser module to site-packages
+COPY python/ydb_parser /usr/local/lib/python3.12/dist-packages/ydb_parser
+COPY python/examples /opt/yottadb/examples
+
 WORKDIR /data
 EXPOSE 9080 9081
 COPY ci/docker-scripts/docker-main-startup.sh /docker-main-startup.sh

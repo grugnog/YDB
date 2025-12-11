@@ -10,21 +10,76 @@ Python bindings for parsing MUMPS code using YottaDB's compiler and generating A
 - Simple ctypes-based interface (no compilation needed)
 - Clean Python API
 
-## Prerequisites
-
-- YottaDB installed with `libyottadb.so` available
-- Python 3.7 or higher
-
 ## Installation
 
+This package requires YottaDB with AST JSON support. The easiest way to use it is via Docker:
+
+### Using Docker (Recommended)
+
 ```bash
-cd python
-pip install .
+# Pull the Docker image with YottaDB and Python bindings
+docker pull ghcr.io/grugnog/ydb:ast-dump
+
+# Run an interactive Python session
+docker run -it --rm ghcr.io/grugnog/ydb:ast-dump python3
 ```
+
+Or mount your code directory:
+
+```bash
+docker run -it --rm -v "$(pwd):/workspace" -w /workspace \
+  ghcr.io/grugnog/ydb:ast-dump \
+  python3 your_script.py
+```
+
+### System Requirements
+
+- Docker (for containerized usage)
+- Or: YottaDB r2.00+ with AST support compiled on your system
 
 ## Quick Start
 
-### Parse MUMPS code from a string
+### In Docker Container
+
+```bash
+docker run -it --rm ghcr.io/grugnog/ydb:ast-dump python3 << 'EOF'
+from ydb_parser import parse_mumps
+
+# Parse a simple MUMPS statement
+code = ' write "Hello, World!",!'
+ast = parse_mumps(code)
+
+print(f"AST Type: {ast['ast_type']}")
+print(f"Number of triples: {len(ast['triples'])}")
+EOF
+```
+
+### In Python Script
+
+Create a file `parse_example.py`:
+
+```python
+from ydb_parser import parse_mumps
+
+# Parse a simple MUMPS statement
+code = ' write "Hello, World!",!'
+ast = parse_mumps(code)
+
+print(f"AST Type: {ast['ast_type']}")
+print(f"Number of triples: {len(ast['triples'])}")
+```
+
+Run it in the container:
+
+```bash
+docker run -it --rm -v "$(pwd):/workspace" -w /workspace \
+  ghcr.io/grugnog/ydb:ast-dump \
+  python3 parse_example.py
+```
+
+### Additional Examples
+
+#### Parse MUMPS code from a string
 
 ```python
 from ydb_parser import parse_mumps
@@ -43,7 +98,7 @@ for triple in ast['triples'][:5]:
     print(f"{triple['opcode']} at line {triple['source_line']}")
 ```
 
-### Parse MUMPS code from a file
+#### Parse MUMPS code from a file
 
 ```python
 from ydb_parser import parse_mumps_file
@@ -53,19 +108,19 @@ print(ast['ast_type'])  # "MUMPS"
 print(ast['source_file'])
 ```
 
-### Using the Parser class directly
+#### Using the Parser class directly
 
 ```python
 from ydb_parser import YDBParser
 
-# Create parser with explicit library path
-parser = YDBParser('/usr/local/lib/libyottadb.so')
+# Create parser (uses default library location)
+parser = YDBParser()
 
 # Parse code
-ast = parser.parse('write "Test",!')
+ast = parser.parse(' write "Test",!')
 
 # Keep temporary JSON files for debugging
-ast = parser.parse('set x=1', cleanup=False)
+ast = parser.parse(' set x=1', cleanup=False)
 ```
 
 ## AST Structure
