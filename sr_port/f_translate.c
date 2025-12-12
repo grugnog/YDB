@@ -111,7 +111,9 @@ int f_translate(oprtype *a, opctype op)
 			dqdel(args[2], exorder);
 		} else if (gtm_utf8_mode && valid_utf_string(&srch_mval->str) && valid_utf_string(&rplc_mval->str))
 		{	/* actual UTF-8 characters, so need hashtable rather than just than code table */
-			unuse_literal(&args[1]->operand[0].oprval.tref->operand[0].oprval.mlit->v);
+			/* NOTE: For OC_FNTRANSLATE_FAST path, we preserve the search string literal for AST consumers.
+			 * Only call unuse_literal on srch when the source is also a literal (compile-time evaluation).
+			 */
 			if (!badchar_inhibit)
 				MV_FORCE_LEN(srch_mval);      				/* needed only to validate for BADCHARs */
 			else
@@ -145,13 +147,18 @@ int f_translate(oprtype *a, opctype op)
 				args[0]->opcode = OC_LIT;
 				put_lit_s(&dst_mval, args[0]);
 				args[0]->operand[1].oprclass = NO_REF;
+				unuse_literal(&args[1]->operand[0].oprval.tref->operand[0].oprval.mlit->v);
 				unuse_literal(&args[2]->operand[0].oprval.tref->operand[0].oprval.mlit->v);
 				dqdel(args[1]->operand[0].oprval.tref, exorder);
 				dqdel(args[2]->operand[0].oprval.tref, exorder);
 				dqdel(args[1], exorder);
 				dqdel(args[2], exorder);
 			} else
-			{	/* op_fntranslate_fast arguments; src, rplc, m_xlate, xlate_hash, so need one more triple */
+			{	/* op_fntranslate_fast arguments; src, rplc, m_xlate, xlate_hash
+				 * The original search string OC_LIT triple is intentionally NOT deleted
+				 * from exorder so it remains visible in AST dumps for transpilers/analyzers.
+				 * It appears before OC_FNTRANSLATE_FAST in execution order.
+				 */
 				args[0]->opcode = OC_FNTRANSLATE_FAST;		/* note no Z */
 				assert(OC_PARAMETER == args[1]->opcode);
 				args[1]->operand[0] = args[2]->operand[0];	/* Promote the rplc string to the second argument */
