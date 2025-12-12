@@ -428,8 +428,35 @@ static void dump_operand_json(oprtype *opr, boolean_t is_last)
 			}
 			break;
 		case MLAB_REF:
-			/* For now, use a placeholder for label references */
-			if (fprintf(ast_json_file, "\"<label>\"") < 0) return;
+			{
+				mlabel *mlab = opr->oprval.lab;
+				if (mlab && mlab->mvname.addr && mlab->mvname.len > 0) {
+					/* Output label name */
+					if (fprintf(ast_json_file, "\"") < 0) return;
+					/* Escape JSON special characters in the label name */
+					for (int i = 0; i < mlab->mvname.len; i++) {
+						char c = mlab->mvname.addr[i];
+						switch (c) {
+							case '"':  if (fprintf(ast_json_file, "\\\"") < 0) return; break;
+							case '\\': if (fprintf(ast_json_file, "\\\\") < 0) return; break;
+							case '\n': if (fprintf(ast_json_file, "\\n") < 0) return; break;
+							case '\r': if (fprintf(ast_json_file, "\\r") < 0) return; break;
+							case '\t': if (fprintf(ast_json_file, "\\t") < 0) return; break;
+							default:
+								if ((unsigned char)c < 0x20 || (unsigned char)c >= 0x7F) {
+									if (fprintf(ast_json_file, "\\u%04x", (unsigned char)c) < 0) return;
+								} else {
+									if (fprintf(ast_json_file, "%c", c) < 0) return;
+								}
+								break;
+						}
+					}
+					if (fprintf(ast_json_file, "\"") < 0) return;
+				} else {
+					/* Fallback for NULL or empty label */
+					if (fprintf(ast_json_file, "\"<label>\"") < 0) return;
+				}
+			}
 			break;
 		case INDR_REF:
 			/* For now, use a placeholder for indirect references */
