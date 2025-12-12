@@ -93,8 +93,6 @@ void ast_dump_json_init(void)
 		return;
 	}
 	
-	printf("Dumping AST to: %s\n", json_filename);
-
 	/* Safety check for t_orig */
 	if (!t_orig.exorder.fl || !t_orig.exorder.bl) {
 		if (fprintf(ast_json_file, "{\n  \"error\": \"Invalid triple chain\",\n") < 0 ||
