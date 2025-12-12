@@ -16,6 +16,8 @@ docker pull ghcr.io/grugnog/ydb:ast-dump
 docker run -it --rm ghcr.io/grugnog/ydb:ast-dump python3
 ```
 
+Note: The default entrypoint automatically sources the YDB environment.
+
 Then in Python:
 
 ```python
@@ -86,6 +88,13 @@ docker run -it --rm \
 ```
 
 Then you can run Python scripts, edit files, etc. from within the container.
+
+**Note:** If you override the entrypoint with `--entrypoint=/bin/bash`, you'll need to source the YDB environment first:
+
+```bash
+source /opt/yottadb/current/ydb_env_set
+python3 your_script.py
+```
 
 ### Use as a Base Image
 

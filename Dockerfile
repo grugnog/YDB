@@ -175,8 +175,13 @@ RUN --mount=type=bind,from=ydb-release-builder,source=/tmp/yottadb-release,targe
     rm -rf /var/lib/apt/lists/* && \
     rm -rf /tmp/ydb-release
 
-# Install Python ydb_parser module to site-packages
-COPY python/ydb_parser /usr/local/lib/python3.12/dist-packages/ydb_parser
+# Install Python ydb_parser module globally
+COPY python/ydb_parser /tmp/ydb_parser
+RUN python3 -c "import sys; print(sys.path)" && \
+    cp -r /tmp/ydb_parser /usr/local/lib/python3.12/dist-packages/ && \
+    rm -rf /tmp/ydb_parser && \
+    python3 -c "import ydb_parser; print(f'ydb_parser installed at: {ydb_parser.__file__}')"
+
 COPY python/examples /opt/yottadb/examples
 
 WORKDIR /data
