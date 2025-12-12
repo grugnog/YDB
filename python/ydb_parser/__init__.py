@@ -27,6 +27,7 @@ Example usage:
 import ctypes
 import json
 import os
+import tempfile
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
@@ -131,10 +132,29 @@ class YDBParser:
             ctypes.c_size_t,  # error_len
         ]
         self.lib.ydb_parse_mumps_to_json.restype = ctypes.c_int
+        
+        # int ydb_parse_mumps_file_to_json(
+        #     const char *mumps_filename,
+        #     char *json_filename_out,
+        #     size_t filename_len,
+        #     char *error_out,
+        #     size_t error_len
+        # )
+        self.lib.ydb_parse_mumps_file_to_json.argtypes = [
+            ctypes.c_char_p,  # mumps_filename
+            ctypes.c_char_p,  # json_filename_out
+            ctypes.c_size_t,  # filename_len
+            ctypes.c_char_p,  # error_out
+            ctypes.c_size_t,  # error_len
+        ]
+        self.lib.ydb_parse_mumps_file_to_json.restype = ctypes.c_int
     
     def parse(self, code: str, cleanup: bool = True) -> Dict:
         """
         Parse MUMPS code and return the AST as a Python dictionary.
+        
+        For multi-line code, this method automatically writes to a temporary
+        file and uses the full compiler pipeline for accurate parsing.
         
         Args:
             code: String containing MUMPS code to parse
@@ -161,6 +181,25 @@ class YDBParser:
         if not code.strip():
             raise ValueError("code cannot be empty")
         
+        # For multi-line code, use the file-based approach for better accuracy
+        if '\n' in code:
+            # Write code to a temporary file
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.m', delete=False, encoding='utf-8') as tf:
+                temp_file = tf.name
+                tf.write(code)
+            
+            try:
+                # Parse using the file-based method
+                ast = self.parse_file(temp_file, cleanup=cleanup)
+                return ast
+            finally:
+                # Clean up temporary MUMPS file
+                try:
+                    os.unlink(temp_file)
+                except OSError:
+                    pass
+        
+        # Single-line code: use the string-based API
         # Prepare buffers for output
         filename_buf = ctypes.create_string_buffer(1024)
         error_buf = ctypes.create_string_buffer(4096)
@@ -203,32 +242,153 @@ class YDBParser:
         
         return ast
     
-    def parse_file(self, filename: Union[str, Path], cleanup: bool = True) -> Dict:
+    def parse_file(self, mumps_file: str, cleanup: bool = True) -> Dict:
         """
-        Parse MUMPS code from a file and return the AST.
+        Parse a MUMPS source file and return the AST as a Python dictionary.
+        
+        This method uses the full compiler pipeline and properly handles
+        multi-line MUMPS routines.
         
         Args:
-            filename: Path to MUMPS source file
+            mumps_file: Path to MUMPS source file (.m file)
             cleanup: If True, delete the temporary JSON file after parsing
         
         Returns:
-            Dictionary containing the AST
+            Dictionary containing the AST with keys:
+                - ast_type: Always "MUMPS"
+                - source_file: Name of the MUMPS source file
+                - triples: List of AST nodes (triples)
         
         Raises:
-            FileNotFoundError: If the input file doesn't exist
             YDBParserError: If parsing fails
+            FileNotFoundError: If the MUMPS file doesn't exist
+            
+        Example:
+            >>> parser = YDBParser()
+            >>> ast = parser.parse_file('routine.m')
+            >>> print(len(ast['triples']))
+            25
         """
-        filepath = Path(filename)
+        if not isinstance(mumps_file, str):
+            raise TypeError("mumps_file must be a string")
         
-        if not filepath.exists():
-            raise FileNotFoundError(f"MUMPS source file not found: {filename}")
+        if not mumps_file.strip():
+            raise ValueError("mumps_file cannot be empty")
         
-        # Read the file content
-        with open(filepath, 'r', encoding='utf-8') as f:
-            code = f.read()
+        # Check if file exists
+        if not os.path.exists(mumps_file):
+            raise FileNotFoundError(f"MUMPS file not found: {mumps_file}")
         
-        # Parse the code
-        return self.parse(code, cleanup=cleanup)
+        # Prepare buffers for output
+        filename_buf = ctypes.create_string_buffer(1024)
+        error_buf = ctypes.create_string_buffer(4096)
+        
+        # Call the C function
+        result = self.lib.ydb_parse_mumps_file_to_json(
+            mumps_file.encode('utf-8'),
+            filename_buf,
+            len(filename_buf),
+            error_buf,
+            len(error_buf)
+        )
+        
+        # Check for errors
+        if result != 0:
+            error_msg = error_buf.value.decode('utf-8', errors='replace')
+            raise YDBParserError(f"Parse failed (code {result}): {error_msg}")
+        
+        # Get the JSON filename
+        json_filename = filename_buf.value.decode('utf-8')
+        
+        if not json_filename:
+            raise YDBParserError("No JSON filename returned from parser")
+        
+        # Read and parse the JSON file
+        try:
+            with open(json_filename, 'r', encoding='utf-8') as f:
+                ast = json.load(f)
+        except FileNotFoundError:
+            raise YDBParserError(f"JSON file not found: {json_filename}")
+        except json.JSONDecodeError as e:
+            raise YDBParserError(f"Invalid JSON in {json_filename}: {e}")
+        finally:
+            # Optionally clean up the temporary file
+            if cleanup and os.path.exists(json_filename):
+                try:
+                    os.unlink(json_filename)
+                except OSError:
+                    pass  # Ignore cleanup errors
+        
+        return ast
+    
+    def parse_file(self, mumps_file: Union[str, Path], cleanup: bool = True) -> Dict:
+        """
+        Parse a MUMPS source file and return the AST as a Python dictionary.
+        
+        This method uses the full compiler pipeline and properly handles
+        multi-line MUMPS routines.
+        
+        Args:
+            mumps_file: Path to MUMPS source file (.m file)
+            cleanup: If True, delete the temporary JSON file after parsing
+        
+        Returns:
+            Dictionary containing the AST with keys:
+                - ast_type: Always "MUMPS"
+                - source_file: Name of the MUMPS source file
+                - triples: List of AST nodes (triples)
+        
+        Raises:
+            YDBParserError: If parsing fails
+            FileNotFoundError: If the MUMPS file doesn't exist
+        """
+        mumps_file = str(mumps_file)
+        
+        # Check if file exists
+        if not os.path.exists(mumps_file):
+            raise FileNotFoundError(f"MUMPS file not found: {mumps_file}")
+        
+        # Prepare buffers for output
+        filename_buf = ctypes.create_string_buffer(1024)
+        error_buf = ctypes.create_string_buffer(4096)
+        
+        # Call the C function
+        result = self.lib.ydb_parse_mumps_file_to_json(
+            mumps_file.encode('utf-8'),
+            filename_buf,
+            len(filename_buf),
+            error_buf,
+            len(error_buf)
+        )
+        
+        # Check for errors
+        if result != 0:
+            error_msg = error_buf.value.decode('utf-8', errors='replace')
+            raise YDBParserError(f"Parse failed (code {result}): {error_msg}")
+        
+        # Get the JSON filename
+        json_filename = filename_buf.value.decode('utf-8')
+        
+        if not json_filename:
+            raise YDBParserError("No JSON filename returned from parser")
+        
+        # Read and parse the JSON file
+        try:
+            with open(json_filename, 'r', encoding='utf-8') as f:
+                ast = json.load(f)
+        except FileNotFoundError:
+            raise YDBParserError(f"JSON file not found: {json_filename}")
+        except json.JSONDecodeError as e:
+            raise YDBParserError(f"Invalid JSON in {json_filename}: {e}")
+        finally:
+            # Optionally clean up the temporary file
+            if cleanup and os.path.exists(json_filename):
+                try:
+                    os.unlink(json_filename)
+                except OSError:
+                    pass  # Ignore cleanup errors
+        
+        return ast
 
 
 # Module-level convenience functions

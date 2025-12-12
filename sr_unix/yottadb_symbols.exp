@@ -93,6 +93,7 @@ ydb_node_next_st
 ydb_node_previous_s
 ydb_node_previous_st
 ydb_parse_mumps_to_json
+ydb_parse_mumps_file_to_json
 ydb_set_s
 ydb_set_st
 ydb_sig_dispatch

@@ -1,0 +1,52 @@
+# syntax=docker/dockerfile:1.2
+#################################################################
+#                                                               #
+# Copyright (c) 2025 YottaDB LLC and/or its subsidiaries.       #
+# All rights reserved.                                          #
+#                                                               #
+#       This source code contains the intellectual property     #
+#       of its copyright holder(s), and is made available       #
+#       under a license.  If you do not know the terms of       #
+#       the license, please stop and do not read further.       #
+#                                                               #
+#################################################################
+# Python-optimized YottaDB Docker image
+#
+# This Dockerfile builds on top of the base YDB image to provide
+# a Python-friendly environment with:
+# - Pre-sourced YDB environment variables
+# - Python entrypoint for direct script execution
+# - ydb_parser module pre-installed
+#
+# Build:
+#   $ docker build -t ydb-python:latest -f Dockerfile-python .
+#
+# Use:
+#   $ docker run --rm -v $(pwd):/data ydb-python:latest your_script.py
+#   $ docker run --rm -v $(pwd):/data ydb-python:latest -c "from ydb_parser import YDBParser; print('ready')"
+
+ARG BASE_IMAGE=ydb-test
+FROM ${BASE_IMAGE}
+
+# Create a Python-friendly entrypoint that sources YDB environment
+# and then executes Python with all arguments passed through
+RUN printf '#!/bin/bash\n\
+set -e\n\
+\n\
+# Source YottaDB environment\n\
+source /opt/yottadb/current/ydb_env_set\n\
+\n\
+# If no arguments provided, start interactive Python shell\n\
+if [ $# -eq 0 ]; then\n\
+    exec python3\n\
+fi\n\
+\n\
+# Execute Python with all provided arguments\n\
+exec python3 "$@"\n' > /python-entrypoint.sh && \
+    chmod +x /python-entrypoint.sh
+
+# Set Python as the default entrypoint
+ENTRYPOINT ["/python-entrypoint.sh"]
+
+# Default to interactive mode if no command specified
+CMD []
