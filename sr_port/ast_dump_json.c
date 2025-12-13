@@ -276,9 +276,13 @@ static void dump_operand_json(oprtype *opr, boolean_t is_last)
 			if (fprintf(ast_json_file, "\"literal_value\": ") < 0) return;
 			break;
 		case MNXL_REF:
+			if (fprintf(ast_json_file, "\"line_ref\": ") < 0) return;
+			break;
 		case MFUN_REF:
+			if (fprintf(ast_json_file, "\"func_ref\": ") < 0) return;
+			break;
 		case CDIDX_REF:
-			if (fprintf(ast_json_file, "\"value\": ") < 0) return;
+			if (fprintf(ast_json_file, "\"routine_or_label\": ") < 0) return;
 			break;
 		default:
 			if (fprintf(ast_json_file, "\"value\": ") < 0) return;
@@ -370,10 +374,33 @@ static void dump_operand_json(oprtype *opr, boolean_t is_last)
 			}
 			break;
 		case MNXL_REF:
+			/* MNXL_REF refers to a mline - we don't have a name for it */
+			if (fprintf(ast_json_file, "\"<line_ref>\"") < 0) return;
+			break;
 		case MFUN_REF:
+			/* MFUN_REF uses oprval.lab which may not be valid during AST dump */
+			/* For now, use a placeholder - extracting the label name needs more investigation */
+			if (fprintf(ast_json_file, "\"<func_ref>\"") < 0) return;
+			break;
 		case CDIDX_REF:
-			/* For now, use a placeholder for these other references */
-			if (fprintf(ast_json_file, "\"<literal>\"") < 0) return;
+			{
+				/* CDIDX_REF uses oprval.cdidx which is an mstr* containing the routine/label name */
+				mstr *cdidx = opr->oprval.cdidx;
+				if (cdidx && cdidx->addr && cdidx->len > 0) {
+					if (fprintf(ast_json_file, "\"") < 0) return;
+					for (int i = 0; i < cdidx->len; i++) {
+						char c = cdidx->addr[i];
+						switch (c) {
+							case '"':  if (fprintf(ast_json_file, "\\\"") < 0) return; break;
+							case '\\': if (fprintf(ast_json_file, "\\\\") < 0) return; break;
+							default:   if (fprintf(ast_json_file, "%c", c) < 0) return; break;
+						}
+					}
+					if (fprintf(ast_json_file, "\"") < 0) return;
+				} else {
+					if (fprintf(ast_json_file, "\"\"") < 0) return;
+				}
+			}
 			break;
 		case MVAR_REF:
 			{
