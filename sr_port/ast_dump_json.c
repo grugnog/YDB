@@ -26,6 +26,7 @@ GBLREF command_qualifier	cmd_qlf;
 GBLREF unsigned char	source_file_name[];
 GBLREF unsigned short	source_name_len;
 GBLREF mliteral		literal_chain;
+GBLREF mlabel		*mlabtab;
 
 LITREF char *oc_tab_graphic[];
 
@@ -64,6 +65,19 @@ typedef struct exfun_label_entry {
 static exfun_label_entry exfun_label_map[MAX_EXFUN_LABELS];
 static int exfun_label_count = 0;
 
+/* Label info collection - stores label names with their line numbers and triple IDs */
+typedef struct label_info_entry {
+	char *label_name;
+	int label_len;
+	int line_number;
+	int triple_id;
+	int formalcnt;	/* -1 means no formallist */
+} label_info_entry;
+
+#define MAX_LABELS 256
+static label_info_entry label_info_list[MAX_LABELS];
+static int label_info_count = 0;
+
 /* Forward declarations */
 static void dump_triple_json(triple *trip, boolean_t is_last, int triple_id);
 static void dump_operand_json(oprtype *opr, boolean_t is_last);
@@ -75,6 +89,9 @@ static int get_triple_id(triple *trip);
 static void cleanup_triple_id_map(void);
 static void cleanup_pattern_source_map(void);
 static void cleanup_exfun_label_map(void);
+static void collect_label_info(void);
+static void dump_labels_json(void);
+static void cleanup_label_info(void);
 
 /* Initialize JSON AST dumping */
 void ast_dump_json_init(void)
@@ -134,6 +151,9 @@ void ast_dump_json_init(void)
 	/* Build the triple ID mapping first */
 	build_triple_id_map();
 
+	/* Collect label information (must be done after triple ID map is built) */
+	collect_label_info();
+
 	if (fprintf(ast_json_file, "{\n") < 0) {
 		printf("Warning: Failed to write to AST JSON file\n");
 		fclose(ast_json_file);
@@ -158,6 +178,9 @@ void ast_dump_json_init(void)
 		ast_json_file = NULL;
 		return;
 	}
+	
+	/* Dump labels section */
+	dump_labels_json();
 	
 	write_indent();
 	if (fprintf(ast_json_file, "\"triples\": [\n") < 0) {
@@ -199,6 +222,7 @@ void ast_dump_json_init(void)
 	/* Clean up */
 	cleanup_triple_id_map();
 	cleanup_pattern_source_map();
+	cleanup_label_info();
 	fclose(ast_json_file);
 	ast_json_file = NULL;
 }
@@ -209,6 +233,7 @@ void ast_dump_json_cleanup(void)
 	cleanup_triple_id_map();
 	cleanup_pattern_source_map();
 	cleanup_exfun_label_map();
+	cleanup_label_info();
 	if (ast_json_file) {
 		fclose(ast_json_file);
 		ast_json_file = NULL;
@@ -836,4 +861,132 @@ static void cleanup_exfun_label_map(void)
 		}
 	}
 	exfun_label_count = 0;
+}
+
+/* Callback function for walktree to collect label information */
+static void collect_label_callback(mlabel *mlbl, char *arg)
+{
+	label_info_entry *entry;
+	triple *entry_triple;
+	
+	/* Only process labels that are global (accessible) and have an associated mline */
+	if (!mlbl || !mlbl->ml || !mlbl->gbl)
+		return;
+	
+	if (label_info_count >= MAX_LABELS)
+		return;
+	
+	entry = &label_info_list[label_info_count];
+	
+	/* Copy the label name */
+	if (mlbl->mvname.len > 0) {
+		entry->label_name = (char *)malloc(mlbl->mvname.len + 1);
+		if (entry->label_name) {
+			memcpy(entry->label_name, mlbl->mvname.addr, mlbl->mvname.len);
+			entry->label_name[mlbl->mvname.len] = '\0';
+			entry->label_len = mlbl->mvname.len;
+		} else {
+			return; /* malloc failed */
+		}
+	} else {
+		/* Empty label name (first line of routine) - use empty string */
+		entry->label_name = (char *)malloc(1);
+		if (entry->label_name) {
+			entry->label_name[0] = '\0';
+			entry->label_len = 0;
+		} else {
+			return;
+		}
+	}
+	
+	entry->line_number = mlbl->ml->line_number;
+	entry->formalcnt = mlbl->formalcnt;
+	
+	/* Get the triple ID for the entry point */
+	entry_triple = mlbl->ml->externalentry;
+	if (entry_triple) {
+		entry->triple_id = get_triple_id(entry_triple);
+	} else {
+		entry->triple_id = -1;
+	}
+	
+	label_info_count++;
+}
+
+/* Collect label information from the label table */
+static void collect_label_info(void)
+{
+	label_info_count = 0;
+	
+	if (mlabtab) {
+		walktree((mvar *)mlabtab, collect_label_callback, NULL);
+	}
+}
+
+/* Dump the labels section to JSON */
+static void dump_labels_json(void)
+{
+	int i;
+	int j;
+	char c;
+	
+	if (!ast_json_file)
+		return;
+	
+	write_indent();
+	fprintf(ast_json_file, "\"labels\": [\n");
+	indent_level++;
+	
+	for (i = 0; i < label_info_count; i++) {
+		write_indent();
+		fprintf(ast_json_file, "{\n");
+		indent_level++;
+		
+		write_indent();
+		fprintf(ast_json_file, "\"name\": \"");
+		/* Escape the label name for JSON */
+		for (j = 0; j < label_info_list[i].label_len; j++) {
+			c = label_info_list[i].label_name[j];
+			if (c == '"' || c == '\\') {
+				fprintf(ast_json_file, "\\%c", c);
+			} else if (c >= 32 && c < 127) {
+				fprintf(ast_json_file, "%c", c);
+			} else {
+				fprintf(ast_json_file, "\\u%04x", (unsigned char)c);
+			}
+		}
+		fprintf(ast_json_file, "\",\n");
+		
+		write_indent();
+		fprintf(ast_json_file, "\"line_number\": %d,\n", label_info_list[i].line_number);
+		
+		write_indent();
+		fprintf(ast_json_file, "\"triple_id\": %d,\n", label_info_list[i].triple_id);
+		
+		write_indent();
+		fprintf(ast_json_file, "\"has_formallist\": %s\n", 
+			(label_info_list[i].formalcnt >= 0) ? "true" : "false");
+		
+		indent_level--;
+		write_indent();
+		fprintf(ast_json_file, "}%s\n", (i < label_info_count - 1) ? "," : "");
+	}
+	
+	indent_level--;
+	write_indent();
+	fprintf(ast_json_file, "],\n");
+}
+
+/* Clean up label info list */
+static void cleanup_label_info(void)
+{
+	int i;
+	
+	for (i = 0; i < label_info_count; i++) {
+		if (label_info_list[i].label_name) {
+			free(label_info_list[i].label_name);
+			label_info_list[i].label_name = NULL;
+		}
+	}
+	label_info_count = 0;
 }
