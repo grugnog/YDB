@@ -15,6 +15,7 @@
 #include "mvalconv.h"
 #include "opcode.h"
 #include "cmd_qlf.h"
+#include "mdq.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -24,6 +25,7 @@ GBLREF triple		t_orig;
 GBLREF command_qualifier	cmd_qlf;
 GBLREF unsigned char	source_file_name[];
 GBLREF unsigned short	source_name_len;
+GBLREF mliteral		literal_chain;
 
 LITREF char *oc_tab_graphic[];
 
@@ -354,16 +356,78 @@ static void dump_operand_json(oprtype *opr, boolean_t is_last)
 			break;
 		case MLIT_REF:
 			{
-				/* 
-				 * MLIT_REF contains a pointer to an mliteral structure. However, during AST dump
-				 * the literal memory may not be safely accessible (the literal chain may have been
-				 * freed or reused). To avoid segfaults, we output a placeholder with the pointer
-				 * address rather than trying to dereference the literal value.
-				 */
 				mliteral *mlit = opr->oprval.mlit;
+				mliteral *lit;
+				boolean_t found_in_chain = FALSE;
+				
+				/* Validate the mliteral pointer by checking if it exists in the literal chain */
 				if (mlit) {
+					dqloop(&literal_chain, que, lit) {
+						if (lit == mlit) {
+							found_in_chain = TRUE;
+							break;
+						}
+					}
+				}
+				
+				if (found_in_chain && mlit->v.mvtype) {
+					if (mlit->v.mvtype & MV_STR) {
+						/* String literal */
+						if (fprintf(ast_json_file, "\"") < 0) return;
+						/* Escape JSON special characters in the string */
+						if (mlit->v.str.addr && mlit->v.str.len > 0) {
+							int i;
+							for (i = 0; i < mlit->v.str.len; i++) {
+								char c = mlit->v.str.addr[i];
+								switch (c) {
+									case '"':  if (fprintf(ast_json_file, "\\\"") < 0) return; break;
+									case '\\': if (fprintf(ast_json_file, "\\\\") < 0) return; break;
+									case '\n': if (fprintf(ast_json_file, "\\n") < 0) return; break;
+									case '\r': if (fprintf(ast_json_file, "\\r") < 0) return; break;
+									case '\t': if (fprintf(ast_json_file, "\\t") < 0) return; break;
+									default:
+										if ((unsigned char)c < 0x20 || (unsigned char)c >= 0x7F) {
+											if (fprintf(ast_json_file, "\\u%04x", (unsigned char)c) < 0) return;
+										} else {
+											if (fprintf(ast_json_file, "%c", c) < 0) return;
+										}
+										break;
+								}
+							}
+						}
+						if (fprintf(ast_json_file, "\",\n") < 0) return;
+						fflush(ast_json_file);
+						write_indent();
+						if (fprintf(ast_json_file, "\"literal_type\": \"string\"") < 0) return;
+						
+					} else if (mlit->v.mvtype & MV_INT) {
+						/* Integer literal - extract directly from m[1] */
+						int int_val = mlit->v.m[1] / MV_BIAS;
+						if (fprintf(ast_json_file, "%d,\n", int_val) < 0) return;
+						fflush(ast_json_file);
+						write_indent();
+						if (fprintf(ast_json_file, "\"literal_type\": \"integer\"") < 0) return;
+						
+					} else if (mlit->v.mvtype & MV_NM) {
+						/* Numeric literal - use conversion function */
+						double num_val = mval2double(&mlit->v);
+						if (fprintf(ast_json_file, "%.10g,\n", num_val) < 0) return;
+						fflush(ast_json_file);
+						write_indent();
+						if (fprintf(ast_json_file, "\"literal_type\": \"numeric\"") < 0) return;
+						
+					} else {
+						/* Unknown type - fallback with pointer */
+						if (fprintf(ast_json_file, "\"<literal@%p>\",\n", (void *)mlit) < 0) return;
+						fflush(ast_json_file);
+						write_indent();
+						if (fprintf(ast_json_file, "\"literal_type\": \"unknown\"") < 0) return;
+					}
+				} else if (mlit) {
+					/* Literal pointer exists but not in chain or no mvtype - output placeholder */
 					if (fprintf(ast_json_file, "\"<literal@%p>\"", (void *)mlit) < 0) return;
 				} else {
+					/* Null literal */
 					if (fprintf(ast_json_file, "null") < 0) return;
 				}
 			}
