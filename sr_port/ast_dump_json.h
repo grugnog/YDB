@@ -24,4 +24,8 @@ void ast_dump_json_cleanup(void);
 void ast_dump_register_pattern_source(triple *lit_triple, const char *pattern_src, int pattern_len);
 const char *ast_dump_get_pattern_source(triple *lit_triple, int *len_out);
 
+/* Extrinsic function label storage - maps OC_EXFUN triples to their label names */
+void ast_dump_register_exfun_label(triple *exfun_triple, const char *label_name, int label_len);
+const char *ast_dump_get_exfun_label(triple *exfun_triple, int *len_out);
+
 #endif /* AST_DUMP_JSON_H */

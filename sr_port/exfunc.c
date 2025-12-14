@@ -17,6 +17,7 @@
 #include "toktyp.h"
 #include "mdq.h"
 #include "advancewindow.h"
+#include "ast_dump_json.h"
 
 #define	INDIR_DUMMY	-1
 
@@ -118,6 +119,10 @@ int exfunc(oprtype *a, boolean_t alias_target)
 	if (OC_EXFUN == calltrip->opcode)
 	{
 		assert(MLAB_REF == calltrip->operand[0].oprclass);
+		/* Register the label name for AST dump before transforming to ILIT_REF */
+		ast_dump_register_exfun_label(calltrip,
+			calltrip->operand[0].oprval.lab->mvname.addr,
+			calltrip->operand[0].oprval.lab->mvname.len);
 		triptr = newtriple(OC_JMP);
 		triptr->operand[0] = put_mfun(&calltrip->operand[0].oprval.lab->mvname);
 		calltrip->operand[0].oprclass = ILIT_REF;	/* dummy placeholder */

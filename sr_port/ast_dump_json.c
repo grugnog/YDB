@@ -53,6 +53,17 @@ typedef struct pattern_source_entry {
 static pattern_source_entry pattern_source_map[MAX_PATTERN_SOURCES];
 static int pattern_source_count = 0;
 
+/* Extrinsic function label mapping - associates OC_EXFUN triples with their target label names */
+typedef struct exfun_label_entry {
+	triple *exfun_triple;
+	char *label_name;
+	int label_len;
+} exfun_label_entry;
+
+#define MAX_EXFUN_LABELS 256
+static exfun_label_entry exfun_label_map[MAX_EXFUN_LABELS];
+static int exfun_label_count = 0;
+
 /* Forward declarations */
 static void dump_triple_json(triple *trip, boolean_t is_last, int triple_id);
 static void dump_operand_json(oprtype *opr, boolean_t is_last);
@@ -63,6 +74,7 @@ static void build_triple_id_map(void);
 static int get_triple_id(triple *trip);
 static void cleanup_triple_id_map(void);
 static void cleanup_pattern_source_map(void);
+static void cleanup_exfun_label_map(void);
 
 /* Initialize JSON AST dumping */
 void ast_dump_json_init(void)
@@ -196,6 +208,7 @@ void ast_dump_json_cleanup(void)
 {
 	cleanup_triple_id_map();
 	cleanup_pattern_source_map();
+	cleanup_exfun_label_map();
 	if (ast_json_file) {
 		fclose(ast_json_file);
 		ast_json_file = NULL;
@@ -257,6 +270,27 @@ static void dump_triple_json(triple *trip, boolean_t is_last, int triple_id)
 			}
 		}
 		fprintf(ast_json_file, "\",\n");
+	}
+	
+	/* Check if this OC_EXFUN triple has a registered label name */
+	if (trip->opcode == OC_EXFUN) {
+		const char *exfun_label;
+		int exfun_label_len;
+		exfun_label = ast_dump_get_exfun_label(trip, &exfun_label_len);
+		if (exfun_label && exfun_label_len > 0) {
+			write_indent();
+			fprintf(ast_json_file, "\"exfun_label\": \"");
+			/* Escape JSON special characters in the label name */
+			for (int i = 0; i < exfun_label_len; i++) {
+				char c = exfun_label[i];
+				switch (c) {
+					case '"':  fprintf(ast_json_file, "\\\""); break;
+					case '\\': fprintf(ast_json_file, "\\\\"); break;
+					default:   fprintf(ast_json_file, "%c", c); break;
+				}
+			}
+			fprintf(ast_json_file, "\",\n");
+		}
 	}
 	
 	/* Operands */
@@ -739,4 +773,67 @@ static void cleanup_pattern_source_map(void)
 		}
 	}
 	pattern_source_count = 0;
+}
+
+/* Register an extrinsic function label name for an OC_EXFUN triple */
+void ast_dump_register_exfun_label(triple *exfun_triple, const char *label_name, int label_len)
+{
+	int i;
+	
+	if (!exfun_triple || !label_name || label_len <= 0)
+		return;
+	
+	if (exfun_label_count >= MAX_EXFUN_LABELS)
+		return;  /* Too many labels - silently ignore */
+	
+	/* Check if already registered */
+	for (i = 0; i < exfun_label_count; i++) {
+		if (exfun_label_map[i].exfun_triple == exfun_triple)
+			return;  /* Already registered */
+	}
+	
+	/* Allocate and copy the label name */
+	exfun_label_map[exfun_label_count].exfun_triple = exfun_triple;
+	exfun_label_map[exfun_label_count].label_name = (char *)malloc(label_len + 1);
+	if (exfun_label_map[exfun_label_count].label_name) {
+		memcpy(exfun_label_map[exfun_label_count].label_name, label_name, label_len);
+		exfun_label_map[exfun_label_count].label_name[label_len] = '\0';
+		exfun_label_map[exfun_label_count].label_len = label_len;
+		exfun_label_count++;
+	}
+}
+
+/* Get the label name for an OC_EXFUN triple, or NULL if not registered */
+const char *ast_dump_get_exfun_label(triple *exfun_triple, int *len_out)
+{
+	int i;
+	
+	if (!exfun_triple) {
+		if (len_out) *len_out = 0;
+		return NULL;
+	}
+	
+	for (i = 0; i < exfun_label_count; i++) {
+		if (exfun_label_map[i].exfun_triple == exfun_triple) {
+			if (len_out) *len_out = exfun_label_map[i].label_len;
+			return exfun_label_map[i].label_name;
+		}
+	}
+	
+	if (len_out) *len_out = 0;
+	return NULL;
+}
+
+/* Clean up exfun label map (called from ast_dump_json_cleanup) */
+static void cleanup_exfun_label_map(void)
+{
+	int i;
+	
+	for (i = 0; i < exfun_label_count; i++) {
+		if (exfun_label_map[i].label_name) {
+			free(exfun_label_map[i].label_name);
+			exfun_label_map[i].label_name = NULL;
+		}
+	}
+	exfun_label_count = 0;
 }
