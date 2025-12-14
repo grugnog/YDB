@@ -40,6 +40,17 @@ static triple_map_entry *triple_id_map = NULL;
 static int triple_count = 0;
 static int next_triple_id = 1;
 
+/* Pattern source string mapping - associates OC_LIT triples with their original pattern source */
+typedef struct pattern_source_entry {
+	triple *lit_triple;
+	char *pattern_src;
+	int pattern_len;
+} pattern_source_entry;
+
+#define MAX_PATTERN_SOURCES 256
+static pattern_source_entry pattern_source_map[MAX_PATTERN_SOURCES];
+static int pattern_source_count = 0;
+
 /* Forward declarations */
 static void dump_triple_json(triple *trip, boolean_t is_last, int triple_id);
 static void dump_operand_json(oprtype *opr, boolean_t is_last);
@@ -49,6 +60,7 @@ static const char* oprclass_to_string(operclass class);
 static void build_triple_id_map(void);
 static int get_triple_id(triple *trip);
 static void cleanup_triple_id_map(void);
+static void cleanup_pattern_source_map(void);
 
 /* Initialize JSON AST dumping */
 void ast_dump_json_init(void)
@@ -172,6 +184,7 @@ void ast_dump_json_init(void)
 	
 	/* Clean up */
 	cleanup_triple_id_map();
+	cleanup_pattern_source_map();
 	fclose(ast_json_file);
 	ast_json_file = NULL;
 }
@@ -180,6 +193,7 @@ void ast_dump_json_init(void)
 void ast_dump_json_cleanup(void)
 {
 	cleanup_triple_id_map();
+	cleanup_pattern_source_map();
 	if (ast_json_file) {
 		fclose(ast_json_file);
 		ast_json_file = NULL;
@@ -189,6 +203,9 @@ void ast_dump_json_cleanup(void)
 /* Dump a single triple as JSON */
 static void dump_triple_json(triple *trip, boolean_t is_last, int triple_id)
 {
+	const char *pattern_src;
+	int pattern_len;
+	
 	if (!ast_json_file || !trip)
 		return;
 		
@@ -213,6 +230,32 @@ static void dump_triple_json(triple *trip, boolean_t is_last, int triple_id)
 	
 	write_indent();
 	fprintf(ast_json_file, "\"rtaddr\": %d,\n", trip->rtaddr);
+	
+	/* Check if this OC_LIT triple has a pattern source string registered */
+	pattern_src = ast_dump_get_pattern_source(trip, &pattern_len);
+	if (pattern_src && pattern_len > 0) {
+		write_indent();
+		fprintf(ast_json_file, "\"pattern_string\": \"");
+		/* Escape JSON special characters in the pattern string */
+		for (int i = 0; i < pattern_len; i++) {
+			char c = pattern_src[i];
+			switch (c) {
+				case '"':  fprintf(ast_json_file, "\\\""); break;
+				case '\\': fprintf(ast_json_file, "\\\\"); break;
+				case '\n': fprintf(ast_json_file, "\\n"); break;
+				case '\r': fprintf(ast_json_file, "\\r"); break;
+				case '\t': fprintf(ast_json_file, "\\t"); break;
+				default:
+					if ((unsigned char)c < 0x20 || (unsigned char)c >= 0x7F) {
+						fprintf(ast_json_file, "\\u%04x", (unsigned char)c);
+					} else {
+						fprintf(ast_json_file, "%c", c);
+					}
+					break;
+			}
+		}
+		fprintf(ast_json_file, "\",\n");
+	}
 	
 	/* Operands */
 	write_indent();
@@ -311,65 +354,17 @@ static void dump_operand_json(oprtype *opr, boolean_t is_last)
 			break;
 		case MLIT_REF:
 			{
+				/* 
+				 * MLIT_REF contains a pointer to an mliteral structure. However, during AST dump
+				 * the literal memory may not be safely accessible (the literal chain may have been
+				 * freed or reused). To avoid segfaults, we output a placeholder with the pointer
+				 * address rather than trying to dereference the literal value.
+				 */
 				mliteral *mlit = opr->oprval.mlit;
-				
-				if (mlit && mlit->v.mvtype) {
-					if (mlit->v.mvtype & MV_STR) {
-						/* String literal */
-						if (fprintf(ast_json_file, "\"") < 0) return;
-						/* Escape JSON special characters in the string */
-						if (mlit->v.str.addr && mlit->v.str.len > 0) {
-							for (int i = 0; i < mlit->v.str.len; i++) {
-								char c = mlit->v.str.addr[i];
-								switch (c) {
-									case '"':  if (fprintf(ast_json_file, "\\\"") < 0) return; break;
-									case '\\': if (fprintf(ast_json_file, "\\\\") < 0) return; break;
-									case '\n': if (fprintf(ast_json_file, "\\n") < 0) return; break;
-									case '\r': if (fprintf(ast_json_file, "\\r") < 0) return; break;
-									case '\t': if (fprintf(ast_json_file, "\\t") < 0) return; break;
-                                                                        default:
-                                                                            if ((unsigned char)c < 0x20 || (unsigned char)c >= 0x7F) {
-                                                                                if (fprintf(ast_json_file, "\\u%04x", (unsigned char)c) < 0) return;
-                                                                            } else {
-                                                                                if (fprintf(ast_json_file, "%c", c) < 0) return;
-                                                                            }
-                                                                            break;								}
-							}
-						}
-						if (fprintf(ast_json_file, "\",\n") < 0) return;
-						fflush(ast_json_file);
-						write_indent();
-						if (fprintf(ast_json_file, "\"literal_type\": \"string\"") < 0) return;
-						
-					} else if (mlit->v.mvtype & MV_INT) {
-						/* Integer literal - extract directly from m[1] */
-						int int_val = mlit->v.m[1] / MV_BIAS;
-						if (fprintf(ast_json_file, "%d,\n", int_val) < 0) return;
-						fflush(ast_json_file);
-						write_indent();
-						if (fprintf(ast_json_file, "\"literal_type\": \"integer\"") < 0) return;
-						
-					} else if (mlit->v.mvtype & MV_NM) {
-						/* Numeric literal - use conversion function */
-						double num_val = mval2double(&mlit->v);
-						if (fprintf(ast_json_file, "%.10g,\n", num_val) < 0) return;
-						fflush(ast_json_file);
-						write_indent();
-						if (fprintf(ast_json_file, "\"literal_type\": \"numeric\"") < 0) return;
-						
-					} else {
-						/* Unknown type - fallback */
-						if (fprintf(ast_json_file, "\"<unknown_mval_type>\",\n") < 0) return;
-						fflush(ast_json_file);
-						write_indent();
-						if (fprintf(ast_json_file, "\"literal_type\": \"unknown\"") < 0) return;
-					}
+				if (mlit) {
+					if (fprintf(ast_json_file, "\"<literal@%p>\"", (void *)mlit) < 0) return;
 				} else {
-					/* Null or invalid literal */
-					if (fprintf(ast_json_file, "null,\n") < 0) return;
-					fflush(ast_json_file);
-					write_indent();
-					if (fprintf(ast_json_file, "\"literal_type\": \"null\"") < 0) return;
+					if (fprintf(ast_json_file, "null") < 0) return;
 				}
 			}
 			break;
@@ -617,4 +612,67 @@ static void cleanup_triple_id_map(void)
 	}
 	triple_count = 0;
 	next_triple_id = 1;
+}
+
+/* Register a pattern source string for an OC_LIT triple */
+void ast_dump_register_pattern_source(triple *lit_triple, const char *pattern_src, int pattern_len)
+{
+	int i;
+	
+	if (!lit_triple || !pattern_src || pattern_len <= 0)
+		return;
+	
+	if (pattern_source_count >= MAX_PATTERN_SOURCES)
+		return;  /* Too many patterns - silently ignore */
+	
+	/* Check if already registered */
+	for (i = 0; i < pattern_source_count; i++) {
+		if (pattern_source_map[i].lit_triple == lit_triple)
+			return;  /* Already registered */
+	}
+	
+	/* Allocate and copy the pattern source string */
+	pattern_source_map[pattern_source_count].lit_triple = lit_triple;
+	pattern_source_map[pattern_source_count].pattern_src = (char *)malloc(pattern_len + 1);
+	if (pattern_source_map[pattern_source_count].pattern_src) {
+		memcpy(pattern_source_map[pattern_source_count].pattern_src, pattern_src, pattern_len);
+		pattern_source_map[pattern_source_count].pattern_src[pattern_len] = '\0';
+		pattern_source_map[pattern_source_count].pattern_len = pattern_len;
+		pattern_source_count++;
+	}
+}
+
+/* Get the pattern source string for an OC_LIT triple, or NULL if not a pattern */
+const char *ast_dump_get_pattern_source(triple *lit_triple, int *len_out)
+{
+	int i;
+	
+	if (!lit_triple) {
+		if (len_out) *len_out = 0;
+		return NULL;
+	}
+	
+	for (i = 0; i < pattern_source_count; i++) {
+		if (pattern_source_map[i].lit_triple == lit_triple) {
+			if (len_out) *len_out = pattern_source_map[i].pattern_len;
+			return pattern_source_map[i].pattern_src;
+		}
+	}
+	
+	if (len_out) *len_out = 0;
+	return NULL;
+}
+
+/* Clean up pattern source map (called from ast_dump_json_cleanup) */
+static void cleanup_pattern_source_map(void)
+{
+	int i;
+	
+	for (i = 0; i < pattern_source_count; i++) {
+		if (pattern_source_map[i].pattern_src) {
+			free(pattern_source_map[i].pattern_src);
+			pattern_source_map[i].pattern_src = NULL;
+		}
+	}
+	pattern_source_count = 0;
 }

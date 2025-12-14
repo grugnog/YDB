@@ -21,9 +21,12 @@
 #include "compile_pattern.h"
 #include "patcode.h"
 #include "fullbool.h"
+#include "cmd_qlf.h"
+#include "ast_dump_json.h"
 
 GBLREF spdesc		stringpool;
 GBLREF int		source_column;
+GBLREF command_qualifier	cmd_qlf;
 
 int compile_pattern(oprtype *opr, boolean_t is_indirect)
 {
@@ -33,6 +36,9 @@ int compile_pattern(oprtype *opr, boolean_t is_indirect)
 	mstr		instr;
 	triple		*oldchain, *ref;
 	save_se		save_state;
+	char		*pattern_start;
+	int		pattern_len;
+	triple		*lit_triple;
 	DCL_THREADGBL_ACCESS;
 
 	SETUP_THREADGBL_ACCESS;
@@ -59,11 +65,18 @@ int compile_pattern(oprtype *opr, boolean_t is_indirect)
 		return TRUE;
 	} else
 	{
+		/* Save the start of the pattern source for AST dump */
+		pattern_start = (TREF(source_buffer)).addr + source_column - 1;
+		
 		instr.addr = ((TREF(source_buffer)).addr + source_column - 1);
 		instr.len = STRLEN(instr.addr);
 		status = patstr(&instr, &retstr, NULL);
 		TREF(last_source_column) = (short int)(instr.addr - (TREF(source_buffer)).addr);
 		assert(TREF(last_source_column));
+		
+		/* Calculate pattern source length (from start to where patstr stopped) */
+		pattern_len = (int)(instr.addr - pattern_start);
+		
 		if (status)
 		{	/* status == syntax error when non-zero */
 			stx_error(status);
@@ -77,6 +90,16 @@ int compile_pattern(oprtype *opr, boolean_t is_indirect)
 		memcpy(stringpool.free, &retstr.buff[0], retmval.str.len);
 		stringpool.free += retmval.str.len;
 		*opr = put_lit(&retmval);
+		
+		/* Register the pattern source string with the OC_LIT triple for AST dump */
+		if ((cmd_qlf.qlf & CQ_DUMP_AST_JSON) && (pattern_len > 0)) {
+			/* The put_lit() returns a TRIP_REF to the OC_LIT triple */
+			if (opr->oprclass == TRIP_REF && opr->oprval.tref != NULL) {
+				lit_triple = opr->oprval.tref;
+				ast_dump_register_pattern_source(lit_triple, pattern_start, pattern_len);
+			}
+		}
+		
 		TREF(lexical_ptr) = instr.addr;
 		advancewindow();
 		advancewindow();

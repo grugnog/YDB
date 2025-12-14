@@ -13,9 +13,15 @@
 #ifndef AST_DUMP_JSON_H
 #define AST_DUMP_JSON_H
 
+#include "compiler.h"
+
 /* Function prototypes for AST JSON dumping */
 void ast_dump_json_init(void);
 void ast_dump_json_complete(void);
 void ast_dump_json_cleanup(void);
+
+/* Pattern source string storage - maps OC_LIT triples to their pattern source strings */
+void ast_dump_register_pattern_source(triple *lit_triple, const char *pattern_src, int pattern_len);
+const char *ast_dump_get_pattern_source(triple *lit_triple, int *len_out);
 
 #endif /* AST_DUMP_JSON_H */
